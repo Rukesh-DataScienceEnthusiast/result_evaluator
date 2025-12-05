@@ -2,24 +2,21 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# ---------------------------------------------------------
-# PAGE CONFIG
-# ---------------------------------------------------------
 st.set_page_config(page_title="Novintix Result Evaluator", layout="wide")
 
 # ---------------------------------------------------------
-# CUSTOM CSS WITH YOUR COLOR COMBINATION (033e59 & f4a303)
+# CUSTOM CSS
 # ---------------------------------------------------------
 st.markdown("""
 <style>
 
 html, body {
     background: linear-gradient(to bottom right, #f8fafc, #e2e8f0);
-    font-size: 20px !important;
+    font-size: 18px !important;
 }
 
 .big-title {
-    font-size: 46px;
+    font-size: 40px;
     font-weight: 900;
     color: #033e59;
     text-align: center;
@@ -27,50 +24,57 @@ html, body {
 }
 
 .sub-title {
-    font-size: 22px;
+    font-size: 20px;
     font-weight: 600;
     color: #f4a303;
     text-align: center;
-    margin-bottom: 30px;
+    margin-bottom: 25px;
 }
 
 .section-header {
-    font-size: 34px;
+    font-size: 26px;
     font-weight: 800;
     color: #033e59;
-    margin-bottom: 18px;
+    margin-bottom: 14px;
 }
 
 .dataframe th {
     background-color: #f4a303 !important;
     color: white !important;
     font-size: 18px !important;
+    font-weight: 900 !important;
 }
 
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------------------------------------------------
-# BUCKET PROCESSING WITH QUESTION RANGES
-# ---------------------------------------------------------
-def compute_buckets(df):
 
+# ---------------------------------------------------------
+# SCORE COMPUTATION
+# ---------------------------------------------------------
+def compute_buckets(df: pd.DataFrame) -> pd.DataFrame:
     def sum_range(row, start, end):
         return sum(row.get(f"Q{i}", 0) for i in range(start, end + 1))
 
     df["Aptitude (20) [Q1–Q20]"] = df.apply(lambda r: sum_range(r, 1, 20), axis=1)
-    df["AI/ML/DS (30) [Q21–Q40 + Q61–Q70]"] = df.apply(lambda r: sum_range(r, 21, 40) + sum_range(r, 61, 70), axis=1)
-    df["FSD/DB (30) [Q41–Q60 + Q71–Q80]"] = df.apply(lambda r: sum_range(r, 41, 60) + sum_range(r, 71, 80), axis=1)
-    df["DevOps/Testing (20) [Q81–Q100]"] = df.apply(lambda r: sum_range(r, 81, 100), axis=1)
-
-    df["Overall (100)"] = (
-        df["Aptitude (20) [Q1–Q20]"] +
-        df["AI/ML/DS (30) [Q21–Q40 + Q61–Q70]"] +
-        df["FSD/DB (30) [Q41–Q60 + Q71–Q80]"] +
-        df["DevOps/Testing (20) [Q81–Q100]"]
+    df["AI/ML/DS (30) [Q21–Q40 + Q61–Q70]"] = df.apply(
+        lambda r: sum_range(r, 21, 40) + sum_range(r, 61, 70), axis=1
+    )
+    df["FSD/DB (30) [Q41–Q60 + Q71–Q80]"] = df.apply(
+        lambda r: sum_range(r, 41, 60) + sum_range(r, 71, 80), axis=1
+    )
+    df["DevOps/Testing (20) [Q81–Q100]"] = df.apply(
+        lambda r: sum_range(r, 81, 100), axis=1
     )
 
+    df["Overall (100)"] = (
+        df["Aptitude (20) [Q1–Q20]"]
+        + df["AI/ML/DS (30) [Q21–Q40 + Q61–Q70]"]
+        + df["FSD/DB (30) [Q41–Q60 + Q71–Q80]"]
+        + df["DevOps/Testing (20) [Q81–Q100]"]
+    )
     return df
+
 
 # ---------------------------------------------------------
 # HEADER
@@ -79,104 +83,196 @@ st.markdown("<div class='big-title'>Novintix</div>", unsafe_allow_html=True)
 st.markdown("<div class='sub-title'>Digital – Result Evaluator</div>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# FILE UPLOAD
+# FILE UPLOAD (MULTI-FORMAT)
 # ---------------------------------------------------------
-uploaded_file = st.file_uploader("Upload Excel (.xlsx)", type=["xlsx"])
+uploaded_file = st.file_uploader(
+    "Upload Results File (.xlsx, .xls, .xlsm, .csv, .tsv, .txt, .clsx)",
+    type=["xlsx", "xls", "xlsm", "csv", "tsv", "txt", "clsx"],
+)
 
 if not uploaded_file:
     st.stop()
 
-df_raw = pd.read_excel(uploaded_file)
+ext = uploaded_file.name.split(".")[-1].lower()
+
+try:
+    if ext in ["xlsx", "xls", "xlsm", "clsx"]:
+        df_raw = pd.read_excel(uploaded_file)
+    elif ext in ["csv", "txt"]:
+        df_raw = pd.read_csv(uploaded_file)
+    elif ext == "tsv":
+        df_raw = pd.read_csv(uploaded_file, sep="\t")
+    else:
+        st.error("❌ Unsupported file type.")
+        st.stop()
+except Exception as e:
+    st.error(f"❌ Error reading file: {e}")
+    st.stop()
 
 if "Student name" not in df_raw.columns or "Email" not in df_raw.columns:
-    st.error("❌ Excel must contain 'Student name' and 'Email'")
+    st.error("❌ File must contain 'Student name' and 'Email' columns.")
     st.stop()
 
 df = compute_buckets(df_raw)
+
 st.success("✅ File uploaded & processed successfully!")
 
 # ---------------------------------------------------------
-# CATEGORY + TOP FILTERS
+# SECTION + TOP FILTERS
 # ---------------------------------------------------------
 sections = [
     "Overall (100)",
     "Aptitude (20) [Q1–Q20]",
     "AI/ML/DS (30) [Q21–Q40 + Q61–Q70]",
     "FSD/DB (30) [Q41–Q60 + Q71–Q80]",
-    "DevOps/Testing (20) [Q81–Q100]"
+    "DevOps/Testing (20) [Q81–Q100]",
 ]
 
-with st.container():
-    col_left, col_right = st.columns([3, 1])
+col_left, col_right = st.columns([3, 1])
 
-    with col_left:
-        selected_section = st.selectbox("Choose Category", sections)
+with col_left:
+    selected_section = st.selectbox("Choose Category", sections)
 
-    with col_right:
-        top_options = [5, 10, 20, 30, 40, 50, len(df)]
-        top_choice = st.selectbox("Show Top:", top_options)
+with col_right:
+    top_n = st.selectbox("Show Top:", [5, 10, 20, 30, 40, 50, len(df)])
 
-# ---------------------------------------------------------
-# FILTER DATA
-# ---------------------------------------------------------
-df_sorted = df.sort_values(by=selected_section, ascending=False).head(top_choice)
-df_sorted_reset = df_sorted.reset_index(drop=True)
-df_sorted_reset.index += 1
+df_sorted = df.sort_values(by=selected_section, ascending=False).head(top_n)
+df_sorted = df_sorted.reset_index(drop=True)
+df_sorted.index += 1  # rank index
 
 # ---------------------------------------------------------
-# VISUALS
+# RANK STATE
+# ---------------------------------------------------------
+if "rank_index" not in st.session_state:
+    st.session_state.rank_index = 1
+
+# Clamp rank if filters changed
+total_students = len(df_sorted)
+if st.session_state.rank_index > total_students:
+    st.session_state.rank_index = total_students if total_students > 0 else 1
+if st.session_state.rank_index < 1:
+    st.session_state.rank_index = 1
+
+rank = st.session_state.rank_index
+selected_student = df_sorted.iloc[rank - 1]
+
+# ---------------------------------------------------------
+# VISUALS (BAR LEFT, PIE RIGHT)
 # ---------------------------------------------------------
 vis_left, vis_right = st.columns(2)
 
-# Bar Chart
+# ---------- BAR CHART ----------
 with vis_left:
     st.markdown("<div class='section-header'>Performance Chart</div>", unsafe_allow_html=True)
 
     fig1 = px.bar(
-        df_sorted_reset,
+        df_sorted,
         x="Student name",
         y=selected_section,
         text=selected_section,
         color=selected_section,
         color_continuous_scale=[[0, "#033e59"], [1, "#f4a303"]],
     )
-    fig1.update_layout(xaxis_tickangle=-45, height=450, font=dict(size=18))
+    fig1.update_layout(xaxis_tickangle=-45, height=430, font=dict(size=15))
     st.plotly_chart(fig1, use_container_width=True)
 
-# Pie Chart
+# ---------- PIE CHART + NAVIGATION BELOW ----------
 with vis_right:
-    st.markdown("<div class='section-header'>Score Contribution</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-header'>Bucket Contribution</div>", unsafe_allow_html=True)
+
+    # Data for pie – breakdown of selected student's buckets
+    pie_data = pd.DataFrame(
+        {
+            "Bucket": [
+                "Aptitude",
+                "AI/ML/DS",
+                "FSD/DB",
+                "DevOps/Testing",
+            ],
+            "Score": [
+                selected_student["Aptitude (20) [Q1–Q20]"],
+                selected_student["AI/ML/DS (30) [Q21–Q40 + Q61–Q70]"],
+                selected_student["FSD/DB (30) [Q41–Q60 + Q71–Q80]"],
+                selected_student["DevOps/Testing (20) [Q81–Q100]"],
+            ],
+        }
+    )
 
     fig2 = px.pie(
-        df_sorted_reset,
-        names="Student name",
-        values=selected_section,
+        pie_data,
+        names="Bucket",
+        values="Score",
         color_discrete_sequence=px.colors.sequential.Oranges,
     )
     fig2.update_traces(textinfo="percent+label")
-    fig2.update_layout(height=450, font=dict(size=18))
+    fig2.update_layout(height=380, font=dict(size=14))
     st.plotly_chart(fig2, use_container_width=True)
 
+    # Navigation row BELOW the pie chart (inside right column)
+    nav_left, nav_center, nav_right = st.columns([1, 2, 1])
+
+    with nav_left:
+        if st.button("⬅ Previous", key="prev_btn"):
+            if rank > 1:
+                st.session_state.rank_index -= 1
+
+    with nav_center:
+        st.markdown(
+            f"<p style='text-align:center; font-weight:700; color:#033e59; font-size:18px;'>"
+            f"Rank {rank}: {selected_student['Student name']}</p>",
+            unsafe_allow_html=True,
+        )
+
+    with nav_right:
+        if st.button("Next ➡", key="next_btn"):
+            if rank < total_students:
+                st.session_state.rank_index += 1
+
+
 # ---------------------------------------------------------
-# TABLE
+# TABLE – ALL BUCKETS, SELECTED COLUMN BOLD
 # ---------------------------------------------------------
 st.markdown("<div class='section-header'>Top Students</div>", unsafe_allow_html=True)
 
+df_display = df_sorted[
+    [
+        "Student name",
+        "Email",
+        "Aptitude (20) [Q1–Q20]",
+        "AI/ML/DS (30) [Q21–Q40 + Q61–Q70]",
+        "FSD/DB (30) [Q41–Q60 + Q71–Q80]",
+        "DevOps/Testing (20) [Q81–Q100]",
+        "Overall (100)",
+    ]
+].copy()
+
+
+def highlight_selected(col: pd.Series):
+    # Bold the column which is currently selected in the dropdown
+    style = []
+    for _ in col:
+        if col.name == selected_section:
+            style.append("font-weight: 900; color:#033e59;")
+        else:
+            style.append("")
+    return style
+
+
 st.dataframe(
-    df_sorted_reset[["Student name", "Email", selected_section]],
+    df_display.style.apply(highlight_selected, axis=0),
     height=450,
-    use_container_width=True
+    use_container_width=True,
 )
 
 # ---------------------------------------------------------
-# DOWNLOAD
+# DOWNLOAD CSV
 # ---------------------------------------------------------
-csv = df_sorted_reset.to_csv(index=False)
+csv = df_sorted.to_csv(index=False)
 
 st.download_button(
     "⬇ Download Results CSV",
     csv,
     "results.csv",
     mime="text/csv",
-    use_container_width=True
+    use_container_width=True,
 )
