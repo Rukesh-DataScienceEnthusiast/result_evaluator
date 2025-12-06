@@ -82,40 +82,53 @@ def compute_buckets(df: pd.DataFrame) -> pd.DataFrame:
 st.markdown("<div class='big-title'>Novintix</div>", unsafe_allow_html=True)
 st.markdown("<div class='sub-title'>Digital – Result Evaluator</div>", unsafe_allow_html=True)
 
+
 # ---------------------------------------------------------
-# FILE UPLOAD (MULTI-FORMAT)
+# MULTI-FILE UPLOAD + MERGE
 # ---------------------------------------------------------
-uploaded_file = st.file_uploader(
-    "Upload Results File (.xlsx, .xls, .xlsm, .csv, .tsv, .txt, .clsx)",
+uploaded_files = st.file_uploader(
+    "Upload multiple Result Files (same structure): (.xlsx, .xls, .xlsm, .csv, .tsv, .txt, .clsx)",
     type=["xlsx", "xls", "xlsm", "csv", "tsv", "txt", "clsx"],
+    accept_multiple_files=True
 )
 
-if not uploaded_file:
+if not uploaded_files:
     st.stop()
 
-ext = uploaded_file.name.split(".")[-1].lower()
+merged_list = []
 
-try:
-    if ext in ["xlsx", "xls", "xlsm", "clsx"]:
-        df_raw = pd.read_excel(uploaded_file)
-    elif ext in ["csv", "txt"]:
-        df_raw = pd.read_csv(uploaded_file)
-    elif ext == "tsv":
-        df_raw = pd.read_csv(uploaded_file, sep="\t")
-    else:
-        st.error("❌ Unsupported file type.")
+for uploaded_file in uploaded_files:
+    ext = uploaded_file.name.split(".")[-1].lower()
+
+    try:
+        if ext in ["xlsx", "xls", "xlsm", "clsx"]:
+            df_part = pd.read_excel(uploaded_file)
+        elif ext in ["csv", "txt"]:
+            df_part = pd.read_csv(uploaded_file)
+        elif ext == "tsv":
+            df_part = pd.read_csv(uploaded_file, sep="\t")
+        else:
+            st.error(f"❌ Unsupported file type: {uploaded_file.name}")
+            st.stop()
+
+        merged_list.append(df_part)
+
+    except Exception as e:
+        st.error(f"❌ Error reading file {uploaded_file.name}: {e}")
         st.stop()
-except Exception as e:
-    st.error(f"❌ Error reading file: {e}")
-    st.stop()
 
+# MERGE ALL UPLOADED FILES
+df_raw = pd.concat(merged_list, ignore_index=True)
+
+# VALIDATE REQUIRED COLUMNS
 if "Student name" not in df_raw.columns or "Email" not in df_raw.columns:
-    st.error("❌ File must contain 'Student name' and 'Email' columns.")
+    st.error("❌ All files must contain 'Student name' and 'Email' columns.")
     st.stop()
 
 df = compute_buckets(df_raw)
 
-st.success("✅ File uploaded & processed successfully!")
+st.success("✅ Files uploaded, merged & processed successfully!")
+
 
 # ---------------------------------------------------------
 # SECTION + TOP FILTERS
@@ -140,21 +153,20 @@ df_sorted = df.sort_values(by=selected_section, ascending=False).head(top_n)
 df_sorted = df_sorted.reset_index(drop=True)
 df_sorted.index += 1  # rank index
 
+
 # ---------------------------------------------------------
 # RANK STATE
 # ---------------------------------------------------------
 if "rank_index" not in st.session_state:
     st.session_state.rank_index = 1
 
-# Clamp rank if filters changed
 total_students = len(df_sorted)
-if st.session_state.rank_index > total_students:
-    st.session_state.rank_index = total_students if total_students > 0 else 1
-if st.session_state.rank_index < 1:
-    st.session_state.rank_index = 1
 
+st.session_state.rank_index = max(1, min(st.session_state.rank_index, total_students))
 rank = st.session_state.rank_index
+
 selected_student = df_sorted.iloc[rank - 1]
+
 
 # ---------------------------------------------------------
 # VISUALS (BAR LEFT, PIE RIGHT)
@@ -176,11 +188,10 @@ with vis_left:
     fig1.update_layout(xaxis_tickangle=-45, height=430, font=dict(size=15))
     st.plotly_chart(fig1, use_container_width=True)
 
-# ---------- PIE CHART + NAVIGATION BELOW ----------
+# ---------- PIE CHART ----------
 with vis_right:
     st.markdown("<div class='section-header'>Bucket Contribution</div>", unsafe_allow_html=True)
 
-    # Data for pie – breakdown of selected student's buckets
     pie_data = pd.DataFrame(
         {
             "Bucket": [
@@ -208,7 +219,7 @@ with vis_right:
     fig2.update_layout(height=380, font=dict(size=14))
     st.plotly_chart(fig2, use_container_width=True)
 
-    # Navigation row BELOW the pie chart (inside right column)
+    # Navigation buttons under the pie chart
     nav_left, nav_center, nav_right = st.columns([1, 2, 1])
 
     with nav_left:
@@ -230,7 +241,7 @@ with vis_right:
 
 
 # ---------------------------------------------------------
-# TABLE – ALL BUCKETS, SELECTED COLUMN BOLD
+# TABLE – SELECTED COLUMN BOLD
 # ---------------------------------------------------------
 st.markdown("<div class='section-header'>Top Students</div>", unsafe_allow_html=True)
 
@@ -248,7 +259,6 @@ df_display = df_sorted[
 
 
 def highlight_selected(col: pd.Series):
-    # Bold the column which is currently selected in the dropdown
     style = []
     for _ in col:
         if col.name == selected_section:
@@ -267,12 +277,12 @@ st.dataframe(
 # ---------------------------------------------------------
 # DOWNLOAD CSV
 # ---------------------------------------------------------
-csv = df_sorted.to_csv(index=False)
+full_csv = df.to_csv(index=False)
 
 st.download_button(
-    "⬇ Download Results CSV",
-    csv,
-    "results.csv",
+    "⬇ Download Full Results (All Students)",
+    full_csv,
+    "full_results.csv",
     mime="text/csv",
     use_container_width=True,
 )
